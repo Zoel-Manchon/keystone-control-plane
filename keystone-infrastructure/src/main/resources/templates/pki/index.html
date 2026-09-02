@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('PKI')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('pki')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Seguridad</p>
+          <h1 class="ks-title">Autoridad de certificación</h1>
+        </div>
+        <div style="display:flex;gap:var(--ks-6);text-align:right">
+          <div>
+            <p class="ks-eyebrow">Emitidos</p>
+            <p class="ks-mono" style="font-size:22px;margin:0" th:text="${ca.issuedCount}">0</p>
+          </div>
+          <div>
+            <p class="ks-eyebrow">Revocados</p>
+            <p class="ks-mono" style="font-size:22px;margin:0;color:var(--ks-danger-text)"
+               th:text="${ca.revokedCount}">0</p>
+          </div>
+        </div>
+      </header>
+
+      <!--/* The chain is rendered top-down: root first, then the CA that actually
+             signs devices. Seeing the hierarchy is the point of this screen. */-->
+      <section class="ks-panel">
+        <div class="ks-panel-head"><span class="ks-eyebrow">Cadena de confianza</span></div>
+        <div class="ks-panel-body">
+
+          <div style="border-left:2px solid var(--ks-accent);padding-left:var(--ks-4)">
+            <p class="ks-eyebrow">Root CA · offline en producción</p>
+            <p class="ks-mono" style="margin:0" th:text="${ca.rootSubject}">CN=Keystone Root CA</p>
+            <p class="ks-fingerprint" th:text="${ca.rootFingerprint}">huella</p>
+            <p style="color:var(--ks-text-muted);font-size:12px">
+              Caduca <span class="ks-mono" th:text="${ca.rootNotAfter}">fecha</span>
+            </p>
+          </div>
+
+          <div style="border-left:2px solid var(--ks-border-loud);padding-left:var(--ks-4);
+                      margin-left:var(--ks-6);margin-top:var(--ks-4)">
+            <p class="ks-eyebrow">Issuing CA · firma los dispositivos</p>
+            <p class="ks-mono" style="margin:0" th:text="${ca.issuingSubject}">CN=Keystone Issuing CA</p>
+            <p class="ks-fingerprint" th:text="${ca.issuingFingerprint}">huella</p>
+            <p style="color:var(--ks-text-muted);font-size:12px">
+              Caduca <span class="ks-mono" th:text="${ca.issuingNotAfter}">fecha</span>
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      <section class="ks-panel">
+        <div class="ks-panel-head">
+          <span class="ks-eyebrow">Cadena PEM</span>
+          <a class="ks-btn ks-btn--sm" th:href="@{/api/v1/enrollment/crl}">Descargar CRL</a>
+        </div>
+        <div class="ks-panel-body">
+          <pre class="ks-fingerprint" style="white-space:pre-wrap;margin:0" th:text="${chain}">PEM</pre>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

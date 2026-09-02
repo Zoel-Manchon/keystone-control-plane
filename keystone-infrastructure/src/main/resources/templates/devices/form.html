@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Registrar dispositivo')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('devices')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Inventario</p>
+          <h1 class="ks-title">Registrar dispositivo</h1>
+        </div>
+        <a class="ks-btn" th:href="@{/devices}">Cancelar</a>
+      </header>
+
+      <div class="ks-alert" th:if="${conflict}" th:text="${conflict}">error</div>
+
+      <section class="ks-panel" style="max-width:560px">
+        <div class="ks-panel-head">
+          <span class="ks-eyebrow">Identidad</span>
+        </div>
+        <div class="ks-panel-body">
+
+          <form th:action="@{/devices}" th:object="${form}" method="post">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+
+            <div class="ks-field">
+              <label for="serialNumber">Número de serie</label>
+              <input class="ks-input" type="text" id="serialNumber"
+                     th:field="*{serialNumber}"
+                     th:attrappend="aria-invalid=${#fields.hasErrors('serialNumber')} ? 'true' : null"
+                     placeholder="SN-0001" autocomplete="off">
+              <span class="ks-field-error" th:if="${#fields.hasErrors('serialNumber')}"
+                    th:errors="*{serialNumber}">error</span>
+            </div>
+
+            <div class="ks-field">
+              <label for="model">Modelo</label>
+              <input class="ks-input" type="text" id="model"
+                     th:field="*{model}"
+                     th:attrappend="aria-invalid=${#fields.hasErrors('model')} ? 'true' : null"
+                     placeholder="ESP32-S3" autocomplete="off">
+              <span class="ks-field-error" th:if="${#fields.hasErrors('model')}"
+                    th:errors="*{model}">error</span>
+            </div>
+
+            <!--/* The device starts in PENDING_ENROLLMENT: no certificate is issued
+                   here. That step is explicit and requires a single-use token. */-->
+            <p style="color:var(--ks-text-muted);font-size:12px;margin:0 0 var(--ks-4)">
+              El dispositivo quedará pendiente de enrolamiento. El certificado se emite
+              después, contra un token de un solo uso.
+            </p>
+
+            <button type="submit" class="ks-btn ks-btn--primary">Registrar</button>
+          </form>
+
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

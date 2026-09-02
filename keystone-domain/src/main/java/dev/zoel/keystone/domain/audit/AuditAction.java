@@ -1,0 +1,20 @@
+package dev.zoel.keystone.domain.audit;
+
+/** Operations worth a tamper-evident record. Anything touching identity belongs here. */
+public enum AuditAction {
+    DEVICE_REGISTERED,
+    ENROLLMENT_TOKEN_ISSUED,
+    ENROLLMENT_COMPLETED,
+    ENROLLMENT_REJECTED,
+    CERTIFICATE_ISSUED,
+    CERTIFICATE_ROTATED,
+    CERTIFICATE_REVOKED,
+    DEVICE_DECOMMISSIONED,
+    FIRMWARE_PUBLISHED,
+    ROLLOUT_STARTED,
+    ROLLOUT_ADVANCED,
+    ROLLOUT_PAUSED,
+    ROLLOUT_ROLLED_BACK,
+    ROTATION_REJECTED,
+    CERTIFICATE_EXPIRING
+}

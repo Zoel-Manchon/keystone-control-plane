@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>dev.zoel</groupId>
+    <artifactId>keystone</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Keystone</name>
+    <description>Device identity and OTA control plane for IoT fleets</description>
+
+    <modules>
+        <module>keystone-domain</module>
+        <module>keystone-application</module>
+        <module>keystone-infrastructure</module>
+        <module>keystone-bootstrap</module>
+        <module>keystone-simulator</module>
+    </modules>
+
+    <properties>
+        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
+        <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <spring-boot.version>4.1.0</spring-boot.version>
+        <bouncycastle.version>1.85</bouncycastle.version>
+        <paho.version>1.2.5</paho.version>
+        <archunit.version>1.4.1</archunit.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <jspecify.version>1.0.0</jspecify.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- El BOM de Spring Boot fija la version de TODAS las dependencias
+            gestionadas: no vuelvas a escribir un <version> para ellas. -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Testcontainers 2.x: el BOM fija las versiones de todos sus modulos.
+            Ojo con los nombres: en la 2.x pasaron de 'postgresql' a
+            'testcontainers-postgresql'. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            
+    
+            <!-- Modulos internos -->
+            <dependency>
+                <groupId>dev.zoel</groupId>
+                <artifactId>keystone-domain</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.zoel</groupId>
+                <artifactId>keystone-application</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.zoel</groupId>
+                <artifactId>keystone-infrastructure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- No gestionadas por el BOM -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.paho</groupId>
+                <artifactId>org.eclipse.paho.mqttv5.client</artifactId>
+                <version>${paho.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>${jspecify.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven-surefire-plugin.version}</version>
+            </plugin>
+
+            <!-- Surefire NO recoge las clases *IT: ese es el patron por defecto de
+            Failsafe, no el suyo. Sin este plugin `mvn verify` compilaba los tests de
+            integracion y no ejecutaba ninguno, en silencio y con el build en verde. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${maven-failsafe-plugin.version}</version>
+                <configuration>
+                    <!-- Failsafe usa por defecto el artefacto empaquetado, y
+                    spring-boot-maven-plugin:repackage lo ha convertido en un fat jar
+                    con las clases bajo BOOT-INF/. Desde ahi Spring no resuelve
+                    @SpringBootTest y todos los IT revientan antes de arrancar. -->
+                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <!-- 'verify' es lo que hace fallar el build: sin el, un IT
+                            roto solo deja un informe que nadie mira. -->
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

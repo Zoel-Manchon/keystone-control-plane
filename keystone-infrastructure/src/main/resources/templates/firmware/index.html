@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Firmware')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('firmware')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Distribución</p>
+          <h1 class="ks-title">Firmware y despliegues</h1>
+        </div>
+      </header>
+
+      <div class="ks-empty" th:if="${rollouts.isEmpty() and artifacts.isEmpty()}">
+        <h3>Sin artefactos publicados</h3>
+        <p>Publica una imagen firmada con <span class="ks-mono">POST /api/v1/firmware</span> para empezar.</p>
+      </div>
+
+      <section class="ks-panel" th:unless="${rollouts.isEmpty()}">
+        <div class="ks-panel-head"><span class="ks-eyebrow">Despliegues</span></div>
+        <table class="ks-table">
+          <thead>
+            <tr>
+              <th scope="col">Modelo</th>
+              <th scope="col">Versión</th>
+              <th scope="col">Cohorte</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Rollback a</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="r : ${rollouts}">
+              <td class="ks-col-primary" th:text="${r.targetModel}">SIM-ESP32-S3</td>
+              <td class="ks-mono" th:text="${r.targetVersion}">1.2.0</td>
+              <td>
+                <!--/* The bar is the cohort percentage, not a completion percentage:
+                       it shows how much of the fleet is ELIGIBLE at this stage. */-->
+                <div style="display:flex;align-items:center;gap:var(--ks-2)">
+                  <div style="width:120px;height:6px;background:var(--ks-surface-3);
+                              border:1px solid var(--ks-border-strong)">
+                    <div style="height:100%;background:var(--ks-accent)"
+                         th:style="'height:100%;background:var(--ks-accent);width:' + ${r.stage.percentage()} + '%'"></div>
+                  </div>
+                  <span class="ks-mono" th:text="${r.stage} + ' · ' + ${r.stage.percentage()} + '%'">CANARY · 5%</span>
+                </div>
+              </td>
+              <td>
+                <span class="ks-chip"
+                      th:classappend="${r.status.name() == 'ROLLED_BACK'} ? 'ks-chip--danger'
+                                    : (${r.status.name() == 'COMPLETED'} ? 'ks-chip--ok' : 'ks-chip--pending')"
+                      th:text="${r.status}">IN_PROGRESS</span>
+              </td>
+              <td class="ks-mono ks-col-sub" th:text="${r.previousVersion} ?: '—'">—</td>
+              <td style="text-align:right;white-space:nowrap">
+                <form th:action="@{/firmware/rollouts/{id}/advance(id=${r.id})}" method="post"
+                      style="display:inline"
+                      th:if="${r.status.name() == 'IN_PROGRESS'}">
+                  <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                  <button type="submit" class="ks-btn ks-btn--sm">Avanzar</button>
+                </form>
+                <form th:action="@{/firmware/rollouts/{id}/rollback(id=${r.id})}" method="post"
+                      style="display:inline"
+                      th:if="${r.status.name() != 'ROLLED_BACK' and r.previousVersion != null}"
+                      onsubmit="return confirm('Revertir este despliegue? Los dispositivos volveran a la version anterior.');">
+                  <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                  <button type="submit" class="ks-btn ks-btn--sm ks-btn--danger">Rollback</button>
+                </form>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="ks-panel" th:unless="${artifacts.isEmpty()}">
+        <div class="ks-panel-head"><span class="ks-eyebrow">Artefactos firmados</span></div>
+        <table class="ks-table">
+          <thead>
+            <tr>
+              <th scope="col">Versión</th>
+              <th scope="col">Modelo</th>
+              <th scope="col">Tamaño</th>
+              <th scope="col">SHA-256</th>
+              <th scope="col">Firma</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="a : ${artifacts}">
+              <td class="ks-col-primary ks-mono" th:text="${a.version}">1.2.0</td>
+              <td th:text="${a.model}">SIM-ESP32-S3</td>
+              <td class="ks-mono ks-col-sub" th:text="${a.sizeBytes} + ' B'">0 B</td>
+              <td class="ks-fingerprint" th:text="${#strings.abbreviate(a.sha256, 24)}">sha</td>
+              <td>
+                <span class="ks-chip ks-chip--ok" th:if="${a.deployable}">Ed25519</span>
+                <span class="ks-chip ks-chip--danger" th:unless="${a.deployable}">Sin firma</span>
+              </td>
+              <td style="text-align:right">
+                <form th:action="@{/firmware/rollouts/{id}/start(id=${a.id})}" method="post"
+                      th:if="${a.deployable}">
+                  <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                  <button type="submit" class="ks-btn ks-btn--sm ks-btn--primary">Desplegar al 5%</button>
+                </form>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

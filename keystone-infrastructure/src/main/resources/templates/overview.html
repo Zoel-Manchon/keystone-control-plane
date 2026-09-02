@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Resumen')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('overview')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Flota</p>
+          <h1 class="ks-title">Resumen</h1>
+        </div>
+        <span class="ks-chip ks-chip--ok" id="stream-status">Conectando</span>
+      </header>
+
+      <!--/* KPI row. Expiring certificates sits next to the fleet totals on purpose:
+             it is the number that turns into an outage if nobody looks at it. */-->
+      <section style="display:grid;grid-template-columns:repeat(5,1fr);gap:var(--ks-4)">
+        <div class="ks-panel"><div class="ks-panel-body">
+          <p class="ks-eyebrow">Dispositivos</p>
+          <p class="ks-mono" style="font-size:30px;margin:0" th:text="${total}">0</p>
+        </div></div>
+        <div class="ks-panel"><div class="ks-panel-body">
+          <p class="ks-eyebrow">Activos</p>
+          <p class="ks-mono" style="font-size:30px;margin:0;color:var(--ks-ok-text)"
+             th:text="${active}">0</p>
+        </div></div>
+        <div class="ks-panel"><div class="ks-panel-body">
+          <p class="ks-eyebrow">Pendientes</p>
+          <p class="ks-mono" style="font-size:30px;margin:0;color:var(--ks-accent-hover)"
+             th:text="${pending}">0</p>
+        </div></div>
+        <div class="ks-panel"
+             th:style="${expiring > 0} ? 'border-color:var(--ks-warn)' : ''">
+          <div class="ks-panel-body">
+            <p class="ks-eyebrow">Caducan &lt; 30 d</p>
+            <p class="ks-mono" style="font-size:30px;margin:0"
+               th:style="${expiring > 0} ? 'font-size:30px;margin:0;color:var(--ks-warn-text)' : 'font-size:30px;margin:0'"
+               th:text="${expiring}">0</p>
+          </div>
+        </div>
+        <div class="ks-panel"><div class="ks-panel-body">
+          <p class="ks-eyebrow">Revocados</p>
+          <p class="ks-mono" style="font-size:30px;margin:0;color:var(--ks-danger-text)"
+             th:text="${revoked}">0</p>
+        </div></div>
+      </section>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--ks-4)">
+
+        <section class="ks-panel">
+          <div class="ks-panel-head">
+            <span class="ks-eyebrow">Actividad en vivo</span>
+            <span class="ks-fingerprint" th:text="'Despliegues activos: ' + ${activeRollouts}">0</span>
+          </div>
+          <div class="ks-panel-body">
+            <ul id="event-feed" style="list-style:none;margin:0;padding:0;font-size:12px">
+              <li style="color:var(--ks-text-dim)">Esperando eventos…</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="ks-panel">
+          <div class="ks-panel-head"><span class="ks-eyebrow">Últimas operaciones</span></div>
+          <div class="ks-panel-body" style="padding:0">
+            <table class="ks-table">
+              <tbody>
+                <tr th:each="e : ${events}">
+                  <td class="ks-mono ks-col-sub" style="width:1%;white-space:nowrap"
+                      th:text="${e.sequence}">1</td>
+                  <td class="ks-mono" style="font-size:11px" th:text="${e.action}">ACTION</td>
+                  <td class="ks-col-sub" th:text="${e.detail}">detalle</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="ks-empty" th:if="${events.isEmpty()}" style="border:none">
+              <p>Sin actividad todavía.</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <section class="ks-panel">
+        <div class="ks-panel-head">
+          <span class="ks-eyebrow">Altas recientes</span>
+          <a class="ks-btn ks-btn--sm" th:href="@{/devices}">Ver todos</a>
+        </div>
+        <table class="ks-table" th:unless="${recentDevices.isEmpty()}">
+          <thead>
+            <tr>
+              <th scope="col">Número de serie</th>
+              <th scope="col">Modelo</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Certificado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="d : ${recentDevices}">
+              <td class="ks-col-primary" th:text="${d.serialNumber}">SN-0001</td>
+              <td th:text="${d.model}">ESP32-S3</td>
+              <td><span class="ks-chip" th:classappend="${d.chipModifier}"
+                        th:text="${d.statusLabel}">Activo</span></td>
+              <td class="ks-fingerprint"
+                  th:text="${d.fingerprint != null} ? ${#strings.abbreviate(d.fingerprint, 24)} : 'Sin emitir'">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="ks-empty" th:if="${recentDevices.isEmpty()}" style="border:none">
+          <h3>Todavía no hay dispositivos</h3>
+          <p>Registra el primero para empezar.</p>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script th:src="@{/js/live-events.js}"></script>
+</body>
+</html>

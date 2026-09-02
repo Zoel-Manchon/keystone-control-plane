@@ -1,0 +1,38 @@
+target/
+.demo/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+build/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Secretos y material criptografico: NUNCA al repositorio
+*.p12
+data/
+
+*.jks
+*.key
+*.pem
+*.crt
+# Publica, pero generada en cada arranque: el exportador la reescribe cada 5 min.
+*.crl
+!docker/mosquitto/certs/.gitkeep
+.env
+.env.local
+
+# SO
+.DS_Store
+Thumbs.db

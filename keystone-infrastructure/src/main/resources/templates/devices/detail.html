@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Dispositivo')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('devices')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Dispositivo</p>
+          <h1 class="ks-title ks-mono" th:text="${device.serialNumber}">SN-0001</h1>
+          <p class="ks-fingerprint" th:text="${device.id}">uuid</p>
+        </div>
+        <div style="display:flex;gap:var(--ks-2)">
+          <a class="ks-btn" th:href="@{/devices}">Volver</a>
+          <!--/* Destructive action: POST with a CSRF token and a confirmation. */-->
+          <form th:action="@{/devices/{id}/revoke(id=${device.id})}" method="post"
+                th:if="${device.fingerprint != null}"
+                onsubmit="return confirm('Revocar el certificado de este dispositivo? El broker lo rechazara de inmediato.');">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <button type="submit" class="ks-btn ks-btn--danger">Revocar certificado</button>
+          </form>
+        </div>
+      </header>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--ks-4)">
+
+        <section class="ks-panel">
+          <div class="ks-panel-head"><span class="ks-eyebrow">Identidad</span></div>
+          <div class="ks-panel-body">
+            <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:var(--ks-3) var(--ks-6)">
+              <dt class="ks-eyebrow">Modelo</dt>
+              <dd style="margin:0" th:text="${device.model}">ESP32-S3</dd>
+
+              <dt class="ks-eyebrow">Estado</dt>
+              <dd style="margin:0">
+                <span class="ks-chip" th:classappend="${device.chipModifier}"
+                      th:text="${device.statusLabel}">Pendiente</span>
+              </dd>
+
+              <dt class="ks-eyebrow">Firmware</dt>
+              <dd class="ks-mono" style="margin:0" th:text="${device.firmwareVersion ?: '—'}">—</dd>
+            </dl>
+          </div>
+        </section>
+
+        <section class="ks-panel">
+          <div class="ks-panel-head"><span class="ks-eyebrow">Certificado</span></div>
+          <div class="ks-panel-body">
+
+            <!--/* No certificate means no identity: the empty state names the next
+                   step instead of merely reporting the absence. */-->
+            <div th:if="${device.fingerprint == null}" class="ks-empty" style="padding:var(--ks-6)">
+              <h3>Sin certificado</h3>
+              <p>El dispositivo no puede publicar hasta enrolarse.</p>
+            </div>
+
+            <div th:if="${device.fingerprint != null}">
+              <p class="ks-eyebrow">Huella SHA-256</p>
+              <p class="ks-fingerprint" th:text="${device.fingerprint}">AB:CD:…</p>
+              <p style="color:var(--ks-text-muted);font-size:12px"
+                 th:text="${device.certificateSummary}">Caduca en 90 d</p>
+            </div>
+
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

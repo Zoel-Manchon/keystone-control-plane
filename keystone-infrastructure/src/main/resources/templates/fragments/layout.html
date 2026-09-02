@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="'Keystone · ' + ${title}">Keystone</title>
+  <link rel="stylesheet" th:href="@{/css/keystone.css}">
+</head>
+<body>
+
+<!--/* Sidebar. The active link is marked with aria-current rather than a class,
+       so the state is accessible and the CSS reads it via an attribute selector. */-->
+<aside th:fragment="sidebar(active)" class="ks-sidebar">
+  <div class="ks-brand">
+    <span class="ks-brand-mark"></span>
+    <span class="ks-brand-name">KEYSTONE</span>
+  </div>
+
+  <nav class="ks-nav">
+    <div class="ks-nav-section">Flota</div>
+    <a class="ks-nav-link" th:href="@{/}"
+       th:attrappend="aria-current=${active == 'overview' ? 'page' : null}">Resumen</a>
+    <a class="ks-nav-link" th:href="@{/devices}"
+       th:attrappend="aria-current=${active == 'devices' ? 'page' : null}">Dispositivos</a>
+    <a class="ks-nav-link" th:href="@{/enrollment}"
+       th:attrappend="aria-current=${active == 'enrollment' ? 'page' : null}">Enrolamiento</a>
+
+    <div class="ks-nav-section">Seguridad</div>
+    <a class="ks-nav-link" th:href="@{/pki}"
+       th:attrappend="aria-current=${active == 'pki' ? 'page' : null}">PKI</a>
+    <a class="ks-nav-link" th:href="@{/firmware}"
+       th:attrappend="aria-current=${active == 'firmware' ? 'page' : null}">Firmware</a>
+    <a class="ks-nav-link" th:href="@{/audit}"
+       th:attrappend="aria-current=${active == 'audit' ? 'page' : null}">Auditoría</a>
+  </nav>
+</aside>
+
+<div th:fragment="topbar" class="ks-topbar">
+  <span class="ks-eyebrow">Control plane · Identidad y OTA</span>
+  <!--/* Logout is a POST with a CSRF token: a GET logout can be triggered from a
+         third-party page and is a (minor) CSRF vector in its own right. */-->
+  <form th:action="@{/logout}" method="post">
+    <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+    <button type="submit" class="ks-btn ks-btn--sm">Cerrar sesión</button>
+  </form>
+</div>
+
+</body>
+</html>

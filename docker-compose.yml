@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: keystone-postgres
+    environment:
+      POSTGRES_DB: keystone
+      POSTGRES_USER: keystone
+      POSTGRES_PASSWORD: ${KEYSTONE_DB_PASSWORD:?Set KEYSTONE_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keystone -d keystone"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: keystone-mosquitto
+    ports:
+      # Local development binds the mTLS listener to loopback only.
+      # A deployment that serves real devices should override this binding explicitly.
+      - "127.0.0.1:18883:8883"
+    volumes:
+      - ./docker/mosquitto/config:/mosquitto/config:ro
+      - ./docker/mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+
+volumes:
+  postgres-data:
+  mosquitto-data:

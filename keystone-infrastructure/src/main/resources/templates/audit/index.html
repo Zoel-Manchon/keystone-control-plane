@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Auditoría')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('audit')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Seguridad</p>
+          <h1 class="ks-title">Registro de auditoría</h1>
+        </div>
+        <div>
+          <span class="ks-chip ks-chip--ok" th:if="${integrity.intact}">
+            Cadena íntegra · <span th:text="${integrity.entriesChecked}">0</span> entradas
+          </span>
+          <span class="ks-chip ks-chip--danger" th:unless="${integrity.intact}">
+            Cadena rota en #<span th:text="${integrity.firstBrokenSequence}">0</span>
+          </span>
+        </div>
+      </header>
+
+      <!--/* A broken chain is not a warning, it is an incident: it means a row was
+             altered or removed after it was written. */-->
+      <div class="ks-alert" th:unless="${integrity.intact}">
+        La verificación de la cadena de hashes ha fallado. Alguna entrada ha sido
+        modificada o eliminada después de escribirse. Trátalo como un incidente.
+      </div>
+
+      <div class="ks-empty" th:if="${entries.isEmpty()}">
+        <h3>Sin actividad registrada</h3>
+        <p>Las operaciones sobre identidad aparecerán aquí en cuanto ocurran.</p>
+      </div>
+
+      <section class="ks-panel" th:unless="${entries.isEmpty()}">
+        <table class="ks-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Momento</th>
+              <th scope="col">Actor</th>
+              <th scope="col">Acción</th>
+              <th scope="col">Sujeto</th>
+              <th scope="col">Detalle</th>
+              <th scope="col">Enlace</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="e : ${entries}">
+              <td class="ks-mono" th:text="${e.sequence}">1</td>
+              <td class="ks-col-sub" th:text="${e.occurredAt}">fecha</td>
+              <td class="ks-mono" th:text="${e.actor}">operator</td>
+              <td>
+                <span class="ks-chip"
+                      th:classappend="${e.action.name().contains('REJECT') or e.action.name().contains('REVOK')}
+                                      ? 'ks-chip--danger' : 'ks-chip--pending'"
+                      th:text="${e.action}">ACTION</span>
+              </td>
+              <td class="ks-mono ks-col-sub" th:text="${e.subject}">subject</td>
+              <td class="ks-col-sub" th:text="${e.detail}">detalle</td>
+              <!--/* Showing the previous hash makes the chain visible: each row names
+                     the row it is anchored to. */-->
+              <td class="ks-fingerprint" th:text="${#strings.abbreviate(e.previousHash, 18)}">hash</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="ks-table-foot">
+          <span>Últimas <span th:text="${entries.size()}">0</span> entradas</span>
+          <span class="ks-fingerprint">SHA-256 encadenado</span>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

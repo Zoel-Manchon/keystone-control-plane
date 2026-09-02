@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Enrolamiento')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('enrollment')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Identidad</p>
+          <h1 class="ks-title">Enrolamiento</h1>
+        </div>
+      </header>
+
+      <!--/* Shown once, from a flash attribute. Reloading the page loses it, which is
+             the intended behaviour: the secret is not recoverable by design. */-->
+      <section class="ks-panel" th:if="${issuedSecret}"
+               style="border-color:var(--ks-accent-border);background:var(--ks-accent-tint)">
+        <div class="ks-panel-head">
+          <span class="ks-eyebrow" style="color:var(--ks-accent-hover)">Token emitido · se muestra una sola vez</span>
+        </div>
+        <div class="ks-panel-body">
+          <p class="ks-fingerprint" style="font-size:14px;color:var(--ks-text)"
+             th:text="${issuedSecret}">token</p>
+          <p style="color:var(--ks-text-muted);font-size:12px;margin-top:var(--ks-3)">
+            Dispositivo <span class="ks-mono" th:text="${issuedFor}">id</span> ·
+            caduca <span class="ks-mono" th:text="${issuedExpiry}">fecha</span>
+          </p>
+          <p style="color:var(--ks-warn-text);font-size:12px">
+            Cópialo ahora. Keystone guarda únicamente su hash y no puede volver a mostrarlo.
+          </p>
+        </div>
+      </section>
+
+      <div class="ks-empty" th:if="${pending.isEmpty()}">
+        <h3>No hay dispositivos pendientes</h3>
+        <p>Todos los dispositivos registrados tienen ya certificado.</p>
+      </div>
+
+      <section class="ks-panel" th:unless="${pending.isEmpty()}">
+        <div class="ks-panel-head"><span class="ks-eyebrow">Pendientes de enrolar</span></div>
+        <table class="ks-table">
+          <thead>
+            <tr>
+              <th scope="col">Número de serie</th>
+              <th scope="col">Modelo</th>
+              <th scope="col">Estado</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="d : ${pending}">
+              <td>
+                <div class="ks-col-primary" th:text="${d.serialNumber}">SN-0001</div>
+                <div class="ks-col-sub ks-mono" th:text="${d.id}">uuid</div>
+              </td>
+              <td th:text="${d.model}">ESP32-S3</td>
+              <td><span class="ks-chip" th:classappend="${d.chipModifier}" th:text="${d.statusLabel}">Pendiente</span></td>
+              <td style="text-align:right">
+                <form th:action="@{/enrollment/{id}/token(id=${d.id})}" method="post" style="display:inline">
+                  <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                  <button type="submit" class="ks-btn ks-btn--sm ks-btn--primary">Emitir token</button>
+                </form>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

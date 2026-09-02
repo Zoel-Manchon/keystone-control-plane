@@ -1,0 +1,15 @@
+# Keystone :: topic authorisation
+#
+# %u is the connecting client's username, and use_identity_as_username makes that the
+# certificate CN - the device id assigned by the CA. A device therefore cannot read or
+# write another device's topics even with a perfectly valid certificate.
+#
+# Authentication answers "who are you"; this file answers "what may you touch". A PKI
+# without an ACL gives every enrolled device the run of the broker.
+
+pattern readwrite devices/%u/#
+pattern read fleet/announcements
+
+# The control plane connects with its own certificate and needs the whole tree.
+user keystone-control-plane
+topic readwrite #

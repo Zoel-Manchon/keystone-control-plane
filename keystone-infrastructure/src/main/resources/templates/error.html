@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<!--/* Spring Boot resolves a template named error.html automatically, so no
+       ErrorController implementation is needed. The model attributes below are
+       populated by Boot. Combined with include-stacktrace/include-message set to
+       'never' in application.yml, the client sees the status and nothing else:
+       a stack trace on an error page is free reconnaissance for an attacker. */-->
+<head th:replace="~{fragments/layout :: head('Error')}"></head>
+<body>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:var(--ks-8)">
+  <div style="max-width:520px">
+    <p class="ks-eyebrow">Keystone</p>
+    <h1 class="ks-title">
+      <span class="ks-mono" style="color:var(--ks-text-dim)" th:text="${status}">500</span>
+      <span th:text="${error}">Error</span>
+    </h1>
+    <p style="color:var(--ks-text-muted);margin-top:var(--ks-4)">
+      El servidor no pudo completar la operación. El detalle está en el registro del servidor.
+    </p>
+    <a class="ks-btn ks-btn--primary" th:href="@{/devices}" style="margin-top:var(--ks-6)">
+      Volver a la consola
+    </a>
+  </div>
+</div>
+</body>
+</html>

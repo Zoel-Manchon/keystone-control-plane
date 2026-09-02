@@ -1,0 +1,21 @@
+spring:
+  main:
+    banner-mode: off
+
+simulator:
+  base-url: ${KEYSTONE_URL:http://localhost:8080}
+  operator-username: ${KEYSTONE_OPERATOR:operator}
+  # Required from the environment; no reusable operator credential is committed.
+  operator-password: ${KEYSTONE_OPERATOR_PASSWORD}
+  device-count: 50
+  model-name: SIM-ESP32-S3
+  run-attack-scenarios: true
+  run-mtls-scenarios: true
+  broker-url: ${KEYSTONE_BROKER:ssl://localhost:18883}
+
+logging:
+  level:
+    root: WARN
+    keystone.simulator: INFO
+  pattern:
+    console: "%msg%n"

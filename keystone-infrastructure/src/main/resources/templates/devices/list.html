@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Dispositivos')}"></head>
+<body>
+<div class="ks-shell">
+  <aside th:replace="~{fragments/layout :: sidebar('devices')}"></aside>
+
+  <main class="ks-main">
+    <div th:replace="~{fragments/layout :: topbar}"></div>
+
+    <div class="ks-page">
+
+      <header class="ks-page-head">
+        <div>
+          <p class="ks-eyebrow">Inventario</p>
+          <h1 class="ks-title">
+            Dispositivos
+            <span class="ks-mono" style="color:var(--ks-text-dim);font-size:18px"
+                  th:text="${devices.size()}">0</span>
+          </h1>
+        </div>
+        <a class="ks-btn ks-btn--primary" th:href="@{/devices/new}">Registrar dispositivo</a>
+      </header>
+
+      <!--/* Empty state: an invitation to act, not an error message. */-->
+      <div class="ks-empty" th:if="${devices.isEmpty()}">
+        <h3>Todavía no hay dispositivos</h3>
+        <p>Registra el primero para darle identidad y emitirle un certificado.</p>
+        <a class="ks-btn ks-btn--primary" th:href="@{/devices/new}"
+           style="margin-top:var(--ks-4)">Registrar dispositivo</a>
+      </div>
+
+      <section class="ks-panel" th:unless="${devices.isEmpty()}">
+        <table class="ks-table">
+          <thead>
+            <tr>
+              <th scope="col">Número de serie</th>
+              <th scope="col">Modelo</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Certificado</th>
+              <th scope="col">Firmware</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="d : ${devices}">
+              <td>
+                <div class="ks-col-primary" th:text="${d.serialNumber}">SN-0001</div>
+                <div class="ks-col-sub ks-mono" th:text="${d.id}">uuid</div>
+              </td>
+              <td th:text="${d.model}">ESP32-S3</td>
+              <td>
+                <span class="ks-chip"
+                      th:classappend="${d.chipModifier}"
+                      th:text="${d.statusLabel}">Activo</span>
+              </td>
+              <td>
+                <span th:if="${d.fingerprint == null}"
+                      style="color:var(--ks-text-dim)">Sin emitir</span>
+                <span th:if="${d.fingerprint != null}">
+                  <span class="ks-col-sub" th:text="${d.certificateSummary}">Caduca en 90 d</span>
+                  <span class="ks-fingerprint" th:text="${d.fingerprint}">AB:CD:…</span>
+                </span>
+              </td>
+              <td class="ks-mono" th:text="${d.firmwareVersion ?: '—'}">—</td>
+              <td style="text-align:right">
+                <a class="ks-btn ks-btn--sm" th:href="@{/devices/{id}(id=${d.id})}">Abrir</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="ks-table-foot">
+          <span th:text="${devices.size()} + ' dispositivos'">0 dispositivos</span>
+        </div>
+      </section>
+
+      <!--/* Live event feed over SSE. EventSource reconnects on its own, so there is
+             no polling loop and no retry logic to get wrong. */-->
+      <section class="ks-panel">
+        <div class="ks-panel-head">
+          <span class="ks-eyebrow">Actividad en vivo</span>
+          <span class="ks-chip ks-chip--ok" id="stream-status">Conectando</span>
+        </div>
+        <div class="ks-panel-body">
+          <ul id="event-feed" style="list-style:none;margin:0;padding:0;font-size:12px">
+            <li style="color:var(--ks-text-dim)">Esperando eventos…</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script th:src="@{/js/live-events.js}"></script>
+</body>
+</html>
