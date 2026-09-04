@@ -1,49 +1,54 @@
 # Keystone
 
-Control plane de identidad criptográfica y actualizaciones OTA para flotas de dispositivos IoT.
+**Cryptographic identity and OTA update control plane for IoT fleets.**
 
-Keystone no recoge telemetría: gestiona **quién es** cada dispositivo y **qué firmware puede
-ejecutar**. Emite y revoca certificados X.509 con su propia CA, controla el enrolamiento
-mediante tokens de un solo uso, firma los artefactos de firmware y despliega actualizaciones
-por cohortes con rollback.
-
-## Demo
-
-Recorrido completo del ciclo de vida: registro, enrolamiento, verificación de la cadena,
-rotación con proof of possession, publicación de firmware firmado, despliegue por cohortes
-y verificación de la cadena de auditoría.
+Keystone collects no telemetry. It manages **who each device is** and **what firmware it
+is allowed to run**: it issues and revokes X.509 certificates from its own CA, gates
+enrolment behind single-use tokens, signs firmware artefacts, and rolls updates out in
+cohorts with a way back.
 
 https://github.com/user-attachments/assets/4ba67ffe-b369-4bb9-b658-b71dc7ed7610
 
-Para reproducirlo en tu máquina: `./demo.sh --presentation --keep`.
+<sub>The full lifecycle: registration, enrolment, chain verification, rotation with proof
+of possession, signed firmware publication, cohort rollout and audit-chain verification.
+Reproduce it with <code>./demo.sh --presentation --keep</code>.</sub>
 
-## Stack
+---
 
-| Capa | Tecnología |
-|---|---|
-| Lenguaje | Java 25 (LTS) |
-| Framework | Spring Boot 4.1 (Spring Framework 7) |
-| Persistencia | PostgreSQL 17 + Flyway |
-| PKI | Bouncy Castle 1.85 |
-| Mensajería | MQTT 5 sobre mTLS (Eclipse Paho + Mosquitto) |
-| Consola | Thymeleaf server-rendered, CSS con tokens propios |
-| Tests | JUnit 5, AssertJ, Testcontainers 2, ArchUnit, MockMvc |
+## At a glance
 
-## Arquitectura
+|  |  |
+| --- | --- |
+| **What it is** | The control plane a fleet trusts: it decides which devices exist, which certificates are valid, and which firmware may run. |
+| **The one idea** | Identity is a certificate the device proves it holds, not a token it can copy. Every privileged operation — enrolling, rotating, receiving firmware — is gated on a private key the device never gives up. |
+| **Built with** | Java 25 · Spring Boot 4.1 · PostgreSQL 17 + Flyway · Bouncy Castle · MQTT 5 over mTLS |
+| **Size** | ~7 500 lines across five Maven modules · **78 tests** |
+| **Architecture** | Hexagonal, with the layers as separate Maven modules so the compiler enforces the dependency direction — and ArchUnit fails the build if it is broken |
+| **Security** | Own root + issuing CA · single-use enrolment tokens · proof-of-possession rotation · Ed25519-signed firmware · hash-chained, append-only audit log |
+| **Run it** | `./demo.sh --keep` → `http://localhost:8080` |
 
-Hexagonal (puertos y adaptadores), con las capas separadas en **módulos Maven** para que la
-dirección de las dependencias la garantice el compilador, no la disciplina:
+**Contents** — [Architecture](#architecture) · [Quick start](#quick-start) ·
+[Enrolment](#enrolment) · [Fleet simulator](#fleet-simulator) · [OTA](#ota) ·
+[Certificate rotation](#certificate-rotation) · [Audit trail](#audit-trail) ·
+[Tests](#tests) · [Threat model](#threat-model)
+
+---
+
+## Architecture
+
+Hexagonal — ports and adapters — with the layers as **Maven modules**, so the direction of
+dependencies is guaranteed by the compiler rather than by discipline.
 
 ```mermaid
 flowchart TB
-    SIM["keystone-simulator<br/><i>flota simulada — no depende de ningún módulo Keystone</i>"]
-    BOOT["keystone-bootstrap<br/><i>ensamblado, arranque, migraciones Flyway</i>"]
-    INFRA["keystone-infrastructure<br/><i>adaptadores: REST, web, JPA, PKI, firmware, eventos</i>"]
-    APP["keystone-application<br/><i>casos de uso + puertos in/out</i>"]
-    DOM["keystone-domain<br/><i>modelo puro — cero dependencias de framework</i>"]
+    SIM["keystone-simulator<br/><i>simulated fleet — depends on no Keystone module</i>"]
+    BOOT["keystone-bootstrap<br/><i>assembly, startup, Flyway migrations</i>"]
+    INFRA["keystone-infrastructure<br/><i>adapters: REST, web, JPA, PKI, firmware, events</i>"]
+    APP["keystone-application<br/><i>use cases + in/out ports</i>"]
+    DOM["keystone-domain<br/><i>pure model — zero framework dependencies</i>"]
 
     BOOT --> INFRA --> APP --> DOM
-    SIM -. "solo HTTP / MQTT, como un dispositivo real" .-> BOOT
+    SIM -. "HTTP / MQTT only, like a real device" .-> BOOT
 
     classDef pure fill:#0f2b1d,stroke:#2f9e68,color:#eaf7f0
     classDef out fill:#2b2010,stroke:#b8860b,color:#f7f0e0
@@ -51,22 +56,30 @@ flowchart TB
     class SIM out
 ```
 
-Diez puertos de entrada y doce de salida son el único contrato entre el núcleo y el
-mundo exterior. Nada del núcleo conoce a quien lo llama ni a quien le responde:
+| Module | Responsibility | Files | Lines |
+| --- | --- | --- | --- |
+| `keystone-domain` | The model and its invariants: `Device`, `Rollout`, `EnrollmentToken`, `AuditEntry`. No Spring, no JPA, no framework at all | 25 | 1 219 |
+| `keystone-application` | Ten use cases and the twenty-two ports that are the core's only contract with the outside | 35 | 1 264 |
+| `keystone-infrastructure` | Every adapter: REST, the Thymeleaf console, JPA, the Bouncy Castle CA, firmware signing and storage, the event bus | 52 | 3 169 |
+| `keystone-bootstrap` | Assembly and startup — the only module that knows the whole graph | 10 | 931 |
+| `keystone-simulator` | A simulated fleet that talks HTTP and MQTT like a real device, and depends on no Keystone module | 12 | 902 |
+
+Ten inbound ports and twelve outbound ones are the only contract between the core and the
+world. Nothing in the core knows who calls it or who answers it:
 
 ```mermaid
 flowchart TB
-    subgraph DRIVING["Adaptadores primarios · quien empuja"]
+    subgraph DRIVING["Primary adapters · who pushes"]
         direction LR
         REST["REST<br/>/api/v1/**"]
-        WEB["Consola web<br/>Thymeleaf + SSE"]
+        WEB["Web console<br/>Thymeleaf + SSE"]
         SWEEP["CertificateExpirySweep"]
     end
 
-    subgraph CORE["Núcleo · sin framework"]
+    subgraph CORE["Core · no framework"]
         direction LR
         PIN["port.in<br/>10 interfaces"]
-        UCS["usecase<br/>10 implementaciones"]
+        UCS["usecase<br/>10 implementations"]
         DOMAIN["domain<br/>Device · Rollout<br/>EnrollmentToken · AuditEntry"]
         POUT["port.out<br/>12 interfaces"]
         PIN --> UCS
@@ -74,7 +87,7 @@ flowchart TB
         UCS --> POUT
     end
 
-    subgraph DRIVEN["Adaptadores secundarios · a quien se llama"]
+    subgraph DRIVEN["Secondary adapters · who is called"]
         direction LR
         JPA["JPA<br/>PostgreSQL 17"]
         BC["BouncyCastle CA<br/>root + issuing"]
@@ -87,48 +100,23 @@ flowchart TB
     DRIVING --> CORE --> DRIVEN
 ```
 
-`HexagonalArchitectureTest` convierte esas reglas en tests: el build falla si el dominio
-importa Spring o JPA, o si un controlador accede directamente a la persistencia.
+`HexagonalArchitectureTest` turns those rules into tests: the build fails if the domain
+imports Spring or JPA, or if a controller reaches the persistence layer directly.
 
-> El adaptador MQTT del control plane **no publica**: exporta a disco el certificado de
-> servidor del broker, la cadena de la CA y la CRL (`BrokerTrustMaterialExporter`), que
-> Mosquitto monta en solo lectura. El único cliente Paho del repositorio vive en
-> `keystone-simulator`, que es quien ejerce el listener mTLS.
+> The control plane's MQTT adapter **does not publish**. It exports the broker's server
+> certificate, the CA chain and the CRL to disk (`BrokerTrustMaterialExporter`), which
+> Mosquitto mounts read-only. The only Paho client in the repository lives in
+> `keystone-simulator` — the thing that actually exercises the mTLS listener.
 
-## Arranque local
+### Local topology
 
-La ruta recomendada es el demo reproducible, que genera credenciales efímeras y todo el
-material criptográfico en cada ejecución:
-
-```bash
-./demo.sh --keep
-```
-
-`--keep` deja la consola levantada en `http://localhost:8080` para capturas o grabación.
-La contraseña temporal del operador se imprime al final del script. **No hay contraseñas
-de desarrollo reutilizables en el repositorio.**
-
-Para un arranque manual debes proporcionar, como mínimo, secretos explícitos:
-
-```bash
-export KEYSTONE_DB_PASSWORD="$(openssl rand -hex 24)"
-export KEYSTONE_CA_PASSWORD="$(openssl rand -hex 32)"
-export KEYSTONE_OPERATOR_PASSWORD="$(openssl rand -hex 24)"
-export KEYSTONE_COOKIE_SECURE=false   # solo para localhost HTTP
-
-docker compose up -d postgres
-mvn verify
-mvn -pl keystone-bootstrap spring-boot:run
-```
-
-El control plane escucha en `127.0.0.1` por defecto. PostgreSQL y el listener mTLS de
-Mosquitto también se publican únicamente en loopback en el `docker-compose.yml` de
-desarrollo; exponerlos a una red exige una decisión explícita de despliegue.
+Everything binds to loopback. Exposing any of it to a network takes a deliberate
+deployment decision, not a default.
 
 ```mermaid
 flowchart LR
-    OP(["Operador"])
-    DEV(["Dispositivo / simulador"])
+    OP(["Operator"])
+    DEV(["Device / simulator"])
 
     subgraph HOST["localhost"]
         KS["Keystone control plane<br/>127.0.0.1:8080"]
@@ -138,75 +126,108 @@ flowchart LR
         CERTS["docker/mosquitto/certs/<br/>broker.crt · ca-chain.pem · keystone.crl"]
     end
 
-    OP -->|"HTTP + sesión · CSRF"| KS
-    DEV -->|"REST: enrolamiento, rotación, manifiesto"| KS
-    DEV -->|"MQTT 5 sobre mTLS"| MQ
+    OP -->|"HTTP + session · CSRF"| KS
+    DEV -->|"REST: enrolment, rotation, manifest"| KS
+    DEV -->|"MQTT 5 over mTLS"| MQ
     KS --> PG
     KS --> FS
-    KS -->|"exporta cada 5 min"| CERTS
-    CERTS -.->|"bind mount read-only"| MQ
+    KS -->|"exports every 5 min"| CERTS
+    CERTS -.->|"read-only bind mount"| MQ
 ```
 
-## Roadmap
+---
 
-- [x] Fase 1 — Inventario de dispositivos, dominio, esquema, consola web y tests de arquitectura
-- [x] Fase 1b — Endurecido de la consola: CSRF explícito, cabeceras de seguridad, cookies, auditoría de autenticación, página de error propia
-- [x] Fase 2 — CA con jerarquía root + issuing (EC P-256), firma de CSR con verificación de posesión, revocación y CRL
-- [x] Fase 3 — Enrolamiento con token de un solo uso, auditoría encadenada por hash y stream de eventos en vivo (SSE)
-- [x] Fase 3b — Simulador de flota en Java con hilos virtuales y escenarios adversarios
-- [x] Fase 4 — mTLS real contra Mosquitto: certificado de servidor emitido por la CA, require_certificate, CRL refrescada cada 5 min y ACL por device id
-- [x] Fase 5 — OTA: artefactos firmados con Ed25519, manifiestos por dispositivo, cohortes 5/25/100 y rollback
-- [x] Fase 6 — Auditoría encadenada por hash con verificación de integridad y trigger append-only en Postgres
+## Quick start
 
-## Enrolamiento
+The recommended path is the reproducible demo, which generates ephemeral credentials and
+all the cryptographic material on every run:
 
-El token es de un solo uso y se consume con un **compare-and-set en la base de datos**,
-antes de que la CA firme nada. Ninguna carrera concurrente produce dos certificados.
+```bash
+./demo.sh --keep
+```
+
+`--keep` leaves the console up at `http://localhost:8080` for screenshots or recording.
+The operator's temporary password is printed at the end. **There are no reusable
+development passwords in this repository.**
+
+Starting it by hand means supplying those secrets explicitly:
+
+```bash
+export KEYSTONE_DB_PASSWORD="$(openssl rand -hex 24)"
+export KEYSTONE_CA_PASSWORD="$(openssl rand -hex 32)"
+export KEYSTONE_OPERATOR_PASSWORD="$(openssl rand -hex 24)"
+export KEYSTONE_COOKIE_SECURE=false   # localhost HTTP only
+
+docker compose up -d postgres
+mvn verify
+mvn -pl keystone-bootstrap spring-boot:run
+```
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Language | Java 25 (LTS) |
+| Framework | Spring Boot 4.1 (Spring Framework 7) |
+| Persistence | PostgreSQL 17 + Flyway |
+| PKI | Bouncy Castle 1.85 |
+| Messaging | MQTT 5 over mTLS (Eclipse Paho + Mosquitto) |
+| Console | Server-rendered Thymeleaf, CSS with its own tokens |
+| Tests | JUnit 5, AssertJ, Testcontainers 2, ArchUnit, MockMvc |
+
+---
+
+## Enrolment
+
+The token is single-use and is consumed by a **compare-and-set in the database**, before
+the CA signs anything. No concurrent race can produce two certificates.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor OP as Operador
+    actor OP as Operator
     participant API as EnrollmentController
     participant UC as EnrollDeviceUseCase
     participant DB as PostgreSQL
     participant CA as BouncyCastle CA
     participant AUD as AuditTrail
-    actor DEV as Dispositivo
+    actor DEV as Device
 
     OP->>API: POST /api/v1/devices/{id}/enrollment-token
-    API-->>OP: secreto en claro (única vez)
-    Note over DB: solo se persiste SHA-256(secreto) + TTL
+    API-->>OP: the secret in the clear (once)
+    Note over DB: only SHA-256(secret) + TTL is stored
 
-    OP-->>DEV: entrega fuera de banda
-    DEV->>DEV: genera clave EC P-256 + CSR<br/>la privada nunca sale del dispositivo
+    OP-->>DEV: delivered out of band
+    DEV->>DEV: generates an EC P-256 key + CSR<br/>the private key never leaves the device
     DEV->>API: POST /api/v1/enrollment {secret, csr}
     API->>UC: handle(command)
     UC->>DB: findByHash(SHA-256(secret))
 
-    alt token desconocido, caducado o ya usado
-        DB-->>UC: sin fila usable
+    alt token unknown, expired or already used
+        DB-->>UC: no usable row
         UC->>AUD: ENROLLMENT_REJECTED
-        UC-->>DEV: 403 genérico<br/>(sin distinguir la causa: evita enumeración)
-    else consumeIfUsable gana la carrera
-        DB-->>UC: consumed_at fijado atómicamente
+        UC-->>DEV: a generic 403<br/>(the cause is not distinguished: no enumeration)
+    else consumeIfUsable wins the race
+        DB-->>UC: consumed_at set atomically
         UC->>CA: signCertificateRequest(deviceId, csr)
-        Note over CA: verifica la posesión de la clave.<br/>Sujeto y extensiones los fija la CA,<br/>nunca se copian del CSR.
-        CA-->>UC: certificado + huella + notAfter
+        Note over CA: verifies possession of the key.<br/>The subject and extensions are set by the CA,<br/>never copied from the CSR.
+        CA-->>UC: certificate + fingerprint + notAfter
         UC->>DB: device.completeEnrollment(...) → ACTIVE
         UC->>AUD: CERTIFICATE_ISSUED + ENROLLMENT_COMPLETED
-        UC-->>DEV: certificado + cadena de la CA
+        UC-->>DEV: certificate + CA chain
     end
 ```
 
-El agregado `Device` es quien impone las transiciones; no hay forma de saltárselas desde
-un servicio o un controlador:
+The `Device` aggregate is what enforces the transitions; there is no way to skip one from
+a service or a controller:
 
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING_ENROLLMENT: register()
     PENDING_ENROLLMENT --> ACTIVE: completeEnrollment()
-    ACTIVE --> ACTIVE: rotateCertificate()<br/>exige proof of possession
+    ACTIVE --> ACTIVE: rotateCertificate()<br/>demands proof of possession
     ACTIVE --> REVOKED: revoke()
     PENDING_ENROLLMENT --> REVOKED: revoke()
     ACTIVE --> DECOMMISSIONED: decommission()
@@ -214,70 +235,75 @@ stateDiagram-v2
     DECOMMISSIONED --> [*]
 
     note right of ACTIVE
-        canPublish() == true solo aquí,
-        y solo si el certificado no ha caducado.
-        Es la puerta del broker, del manifiesto OTA
-        y de la rotación.
+        canPublish() == true only here,
+        and only while the certificate has
+        not expired. It is the gate to the
+        broker, to the OTA manifest and to
+        rotation.
     end note
 ```
 
-## Probar el enrolamiento de punta a punta
+### End to end, by hand
 
 ```bash
-# 1. Registra un dispositivo en la consola y emite su token en /enrollment
-# 2. Genera una clave y un CSR como haría el dispositivo
+# 1. Register a device in the console and issue its token at /enrollment
+# 2. Generate a key and a CSR, as the device would
 openssl ecparam -name prime256v1 -genkey -noout -out device.key
 openssl req -new -key device.key -subj "/CN=device" -out device.csr
 
-# 3. Enrólalo
+# 3. Enrol it
 curl -X POST http://localhost:8080/api/v1/enrollment \
   -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"EL_TOKEN\",\"csr\":$(jq -Rs . < device.csr)}"
+  -d "{\"secret\":\"THE_TOKEN\",\"csr\":$(jq -Rs . < device.csr)}"
 
-# 4. Verifica la cadena
+# 4. Verify the chain
 curl http://localhost:8080/api/v1/enrollment/ca-chain > ca-chain.pem
 openssl verify -CAfile ca-chain.pem device.crt
 ```
 
-Reintentar el paso 3 con el mismo token devuelve 403: es de un solo uso.
+Retrying step 3 with the same token returns 403: it is single-use.
 
-## Simulador de flota
+---
 
-Enrola N dispositivos concurrentemente, cada uno en su propio hilo virtual, y después
-ejecuta cuatro escenarios adversarios que deben ser rechazados.
+## Fleet simulator
+
+Enrols N devices concurrently, each on its own virtual thread, then runs four adversarial
+scenarios that must all be rejected.
 
 ```bash
-# con la aplicación corriendo en otra terminal
+# with the application running in another terminal
 mvn -pl keystone-simulator -am spring-boot:run
 
-# más carga
+# more load
 mvn -pl keystone-simulator spring-boot:run -Dspring-boot.run.arguments=--simulator.device-count=500
 ```
 
-Cada dispositivo simulado genera su propia clave EC P-256 y su CSR: la clave privada
-nunca sale del proceso, igual que no saldría del elemento seguro de un ESP32.
+Every simulated device generates its own EC P-256 key and CSR: the private key never
+leaves the process, exactly as it would never leave an ESP32's secure element.
+
+---
 
 ## OTA
 
 ```bash
-# publicar una imagen (queda firmada en la misma operación)
+# publish an image (it is signed in the same operation)
 curl -u "operator:${KEYSTONE_OPERATOR_PASSWORD}" -X POST http://localhost:8080/api/v1/firmware \
   -F version=1.1.0 -F model=SIM-ESP32-S3 -F file=@firmware.bin
 
-# desplegar al 5%, luego avanzar
+# roll out to 5%, then advance
 curl -u "operator:${KEYSTONE_OPERATOR_PASSWORD}" -X POST http://localhost:8080/api/v1/firmware/rollouts/<artifactId>
 curl -u "operator:${KEYSTONE_OPERATOR_PASSWORD}" -X POST http://localhost:8080/api/v1/firmware/rollouts/<rolloutId>/advance
 
-# lo que ve un dispositivo
+# what a device sees
 curl -u "operator:${KEYSTONE_OPERATOR_PASSWORD}" http://localhost:8080/api/v1/firmware/manifest/<deviceId>
 ```
 
-Un rollout **siempre abre en canary**: no existe un camino directo al 100%.
+A rollout **always opens in canary**: there is no direct path to 100%.
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> CANARY: start()<br/>rechaza artefacto sin firmar o retirado
+    [*] --> CANARY: start()<br/>rejects an unsigned or withdrawn artefact
 
     state "IN_PROGRESS" as IP {
         CANARY --> EARLY: advance() · 5% → 25%
@@ -294,86 +320,87 @@ stateDiagram-v2
     COMPLETED --> [*]
 
     note right of ROLLED_BACK
-        Se puede revertir incluso desde COMPLETED:
-        los peores bugs aparecen días después del
-        despliegue completo. Un rollout revertido
-        sigue "alcanzando" al dispositivo — es lo que
-        le ordena bajar de versión.
+        Reachable even from COMPLETED: the worst
+        bugs surface days after a full rollout. A
+        rolled-back rollout still "reaches" the
+        device — it is what tells it to go back
+        down a version.
     end note
 ```
 
-La pertenencia a cohorte se **calcula**, no se almacena: el bucket sale de los dos
-primeros bytes de `SHA-256(rolloutId + ":" + deviceId)` reducidos módulo 100. Es estable
-(un dispositivo no entra y sale del canary entre sondeos), uniforme (el canary es una
-muestra real de la flota, no los cinco primeros registrados), está ligado al rollout —sin
-mezclar el `rolloutId` en el hash, los mismos desafortunados serían el canary siempre— y
-no cuesta filas: un despliegue sobre cien mil dispositivos vale lo mismo que sobre diez.
+Cohort membership is **computed, not stored**: the bucket comes from the first two bytes
+of `SHA-256(rolloutId + ":" + deviceId)` reduced modulo 100. That is stable — a device
+does not drift in and out of the canary between polls — uniform, so the canary is a real
+sample of the fleet rather than the first five devices registered, and bound to the
+rollout, because without mixing the `rolloutId` into the hash the same unlucky devices
+would be the canary every time. It also costs no rows: a rollout across a hundred
+thousand devices costs the same as one across ten.
 
-Lo que decide qué ve un dispositivo al pedir su manifiesto:
+What decides which firmware a device is offered:
 
 ```mermaid
 flowchart TD
     Q["GET /api/v1/firmware/manifest/{deviceId}"] --> P{"device.canPublish()?"}
-    P -->|"no — revocado, caducado o sin enrolar"| X["Sin manifiesto<br/>una revocación no se esquiva pidiendo firmware"]
-    P -->|"sí"| M{"rollout.targetModel == device.model?"}
-    M -->|no| X2["Sin actualización"]
-    M -->|sí| S{"estado del rollout"}
-    S -->|ROLLED_BACK| B["versión = previousVersion"]
-    S -->|"PAUSED u otro"| X2
-    S -->|"IN_PROGRESS o COMPLETED"| C{"bucketOf(deviceId) &lt; stage.percentage()?"}
+    P -->|"no — revoked, expired or not enrolled"| X["No manifest<br/>a revocation is not dodged by asking for firmware"]
+    P -->|"yes"| M{"rollout.targetModel == device.model?"}
+    M -->|no| X2["No update"]
+    M -->|yes| S{"rollout state"}
+    S -->|ROLLED_BACK| B["version = previousVersion"]
+    S -->|"PAUSED or other"| X2
+    S -->|"IN_PROGRESS or COMPLETED"| C{"bucketOf(deviceId) &lt; stage.percentage()?"}
     C -->|no| X2
-    C -->|sí| T["versión = targetVersion"]
+    C -->|yes| T["version = targetVersion"]
     B --> SIGN
-    T --> SIGN["Manifiesto firmado con Ed25519<br/>el deviceId va DENTRO del payload firmado"]
-    SIGN --> D["El dispositivo verifica la firma<br/>antes de descargar la imagen"]
+    T --> SIGN["Manifest signed with Ed25519<br/>the deviceId is INSIDE the signed payload"]
+    SIGN --> D["The device verifies the signature<br/>before downloading the image"]
 ```
 
-## Rotación de certificados
+---
 
-Los certificados de dispositivo duran 90 días. La renovación no confía en la huella
-del certificado como si fuera un secreto: una huella es información pública. Keystone
-exige una **proof of possession** firmada con la clave privada del certificado vigente.
-La firma queda ligada al `deviceId`, la huella actual y el SHA-256 de la forma DER
-canónica del nuevo CSR. No se firma el texto PEM, para que los saltos de línea LF/CRLF
-o una serialización JSON distinta no invaliden la prueba.
+## Certificate rotation
+
+Device certificates last 90 days. Renewal does not treat the certificate's fingerprint as
+a secret — a fingerprint is public information. Keystone demands a **proof of possession**
+signed with the private key of the certificate currently in force, bound to the
+`deviceId`, the current fingerprint and the SHA-256 of the new CSR in canonical DER form.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor DEV as Dispositivo
+    actor DEV as Device
     participant API as RotationController
     participant UC as RotateDeviceCertificateUseCase
     participant CA as CA
     participant DB as PostgreSQL
 
-    DEV->>DEV: genera clave NUEVA + CSR nuevo
-    Note over DEV: proof = firma ECDSA con la clave ACTUAL sobre<br/>"keystone-rotation-v1" ‖ deviceId ‖ huella actual ‖ SHA-256 del CSR en DER
+    DEV->>DEV: generates a NEW key + new CSR
+    Note over DEV: proof = ECDSA signature with the CURRENT key over<br/>"keystone-rotation-v1" ‖ deviceId ‖ current fingerprint ‖ SHA-256 of the DER CSR
     DEV->>API: POST /api/v1/rotation/{deviceId}<br/>{currentFingerprint, csr, proof}
     API->>UC: handle(command)
 
-    UC->>DB: cargar dispositivo y certificado vigente
+    UC->>DB: load the device and its certificate in force
     alt device.canPublish() == false
-        UC-->>DEV: 403 — un revocado no renueva
-    else huella no coincide con el certificado vigente
+        UC-->>DEV: 403 — a revoked device does not renew
+    else the fingerprint does not match the certificate in force
         UC-->>DEV: 403
-    else firma ECDSA no verifica contra la clave pública vigente
-        UC-->>DEV: 403 — la huella es pública, no es un secreto
-    else prueba válida
-        UC->>CA: firmar el nuevo CSR
-        UC->>CA: revocar el certificado anterior → CRL
-        UC->>DB: device.rotateCertificate(nueva huella, notAfter)
-        UC-->>DEV: certificado nuevo
-        Note over CA: el certificado anterior deja de ser<br/>una identidad utilizable
+    else the ECDSA signature does not verify against the current public key
+        UC-->>DEV: 403 — the fingerprint is public, it is not a secret
+    else valid proof
+        UC->>CA: sign the new CSR
+        UC->>CA: revoke the previous certificate → CRL
+        UC->>DB: device.rotateCertificate(new fingerprint, notAfter)
+        UC-->>DEV: new certificate
+        Note over CA: the previous certificate stops being<br/>a usable identity
     end
 ```
 
-Se firma el **DER canónico** del CSR, no su texto PEM: así unos saltos de línea CRLF o
-una serialización JSON distinta no invalidan una prueba por lo demás correcta.
+What is signed is the CSR's **canonical DER**, not its PEM text, so CRLF line endings or a
+different JSON serialisation cannot invalidate an otherwise correct proof.
 
-Ejemplo conceptual equivalente al que ejecuta `demo.sh`:
+The equivalent of what `demo.sh` runs:
 
 ```bash
-# nuevo material que queremos instalar
+# the new material we want to install
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out device-new.key
 openssl req -new -key device-new.key -subj '/CN=renewal' -out device-new.csr
 
@@ -381,7 +408,7 @@ CSR_SHA256=$(openssl req -in device-new.csr -outform DER | openssl dgst -sha256 
 printf 'keystone-rotation-v1\n%s\n%s\n%s' \
   "$DEVICE_ID" "$FINGERPRINT" "$CSR_SHA256" > rotation-proof.txt
 
-# IMPORTANTE: firma la clave ACTUAL, no device-new.key
+# IMPORTANT: sign with the CURRENT key, not device-new.key
 PROOF=$(openssl dgst -sha256 -sign device.key rotation-proof.txt | openssl base64 -A)
 CSR=$(jq -Rs . < device-new.csr)
 
@@ -390,15 +417,17 @@ curl -X POST "http://localhost:8080/api/v1/rotation/$DEVICE_ID" \
   -d "{\"currentFingerprint\":\"$FINGERPRINT\",\"csr\":$CSR,\"proof\":\"$PROOF\"}"
 ```
 
-Una firma realizada con la clave nueva/atacante devuelve `403`, aunque la huella sea
-correcta. Tras una rotación válida, el certificado anterior entra en la CRL y deja de
-ser una identidad utilizable.
+A signature made with the new — or an attacker's — key returns `403`, even when the
+fingerprint is correct. After a valid rotation the previous certificate enters the CRL and
+stops being a usable identity.
 
-## Auditoría
+---
 
-Cada entrada lleva el hash de la anterior. Alterar o borrar una fila rompe la cadena de
-forma detectable, y un trigger de PostgreSQL rechaza además cualquier `UPDATE` o `DELETE`
-sobre la tabla.
+## Audit trail
+
+Every entry carries the hash of the one before it. Altering or deleting a row breaks the
+chain detectably, and a PostgreSQL trigger refuses any `UPDATE` or `DELETE` on the table
+outright.
 
 ```mermaid
 flowchart LR
@@ -407,69 +436,91 @@ flowchart LR
     E2["#2 ENROLLMENT_COMPLETED<br/>previous_hash = h₁<br/>entry_hash = h₂"] --> E3
     E3["#3 CERTIFICATE_REVOKED<br/>previous_hash = h₂<br/>entry_hash = h₃"] --> E4["…"]
 
-    subgraph H["entry_hash = SHA-256 de los campos unidos por 0x1F"]
+    subgraph H["entry_hash = SHA-256 of the fields joined by 0x1F"]
         direction LR
         F["sequence ␟ occurredAt ␟ actor ␟ action ␟ subject ␟ detail ␟ previous_hash"]
     end
 
     E2 -.-> H
-    TR["Trigger audit_log_append_only<br/>UPDATE y DELETE → error"] -.-> E2
+    TR["Trigger audit_log_append_only<br/>UPDATE and DELETE → error"] -.-> E2
 ```
 
-El separador `0x1F` no es decorativo: sin él, `("ab","c")` y `("a","bc")` producirían el
-mismo hash y se podrían desplazar los límites entre campos sin romper la cadena.
+The `0x1F` separator is not decoration: without it, `("ab","c")` and `("a","bc")` would
+hash identically, and the boundaries between fields could be shifted without breaking the
+chain.
+
+---
 
 ## Tests
 
-| Nivel | Cuántos | Qué cubre |
+| Level | How many | What it covers |
 |---|---|---|
-| Dominio | 30 | Invariantes del agregado, cadena de hashes, cohortes, versiones. Sin Spring, sin base de datos |
-| Aplicación | 5 | Casos de uso de enrolamiento y rotación con dobles de los puertos de salida |
-| Arquitectura | 6 | Reglas hexagonales verificadas con ArchUnit: el build falla si el dominio importa Spring o JPA |
-| Integración | 37 | API REST, consola, CA validada con `CertPathValidator`, trigger append-only, flujo completo de enrolamiento — todo contra Postgres real vía Testcontainers |
+| Domain | 30 | Aggregate invariants, the hash chain, cohorts, versions. No Spring, no database |
+| Application | 5 | The enrolment and rotation use cases against doubles of the outbound ports |
+| Architecture | 6 | The hexagonal rules, checked with ArchUnit: the build fails if the domain imports Spring or JPA |
+| Integration | 37 | The REST API, the console, the CA validated with `CertPathValidator`, the append-only trigger, the whole enrolment flow — all against a real Postgres via Testcontainers |
 
-La mayoría son **negativos**: comprueban que algo se rechaza. Token reutilizado,
-secreto inventado, CSR malformado, proof-of-possession incorrecta en la rotación, POST
-sin CSRF, rol insuficiente, `UPDATE` sobre el registro de auditoría y artefacto sin firmar.
+Most of them are **negative**: they check that something is refused. A reused token, an
+invented secret, a malformed CSR, a wrong proof of possession on rotation, a POST without
+CSRF, an insufficient role, an `UPDATE` on the audit log, an unsigned artefact.
 
-Los tests de integración terminan en `*IT` y los ejecuta **Failsafe** en la fase
-`integration-test`, así que necesitan un Docker en marcha para Testcontainers:
+Integration tests end in `*IT` and run under **Failsafe** in the `integration-test` phase,
+so they need a running Docker for Testcontainers:
 
 ```bash
-mvn test      # dominio, aplicación y arquitectura — sin Docker
-mvn verify    # además, los 37 tests de integración — requiere Docker
+mvn test      # domain, application and architecture — no Docker
+mvn verify    # plus the 37 integration tests — Docker required
 ```
 
-Los 78 juntos tardan poco más de un minuto. El contenedor de PostgreSQL es un
-**singleton** que se arranca una vez para toda la JVM y no se para entre clases: con el
-ciclo de vida por clase de `@Testcontainers`, el primer IT en terminar lo apagaba
-mientras Spring seguía con un contexto cacheado apuntando a un puerto ya muerto.
+All 78 take a little over a minute. The PostgreSQL container is a **singleton**, started
+once for the whole JVM and never stopped between classes: with `@Testcontainers`'
+per-class lifecycle, the first IT to finish shut it down while Spring carried on with a
+cached context pointing at a dead port.
 
-`./demo.sh` no ejecuta los IT por defecto —cada paso del demo recorre los mismos caminos
-contra un PostgreSQL, un Mosquitto y un OpenSSL reales, que prueba estrictamente más—.
-Con `--full` los añade.
+`./demo.sh` does not run the ITs by default — every step of the demo walks the same paths
+against a real PostgreSQL, a real Mosquitto and a real OpenSSL, which proves strictly
+more. `--full` adds them.
 
-## Modelo de amenazas (resumen)
+---
 
-| Amenaza | Mitigación |
+## Threat model
+
+| Threat | Mitigation |
 |---|---|
-| Suplantación de dispositivo | mTLS con certificado por dispositivo emitido por la CA propia |
-| Reutilización del token de enrolamiento | Consumo atómico compare-and-set en PostgreSQL, hash en BD y TTL |
-| Firmware manipulado | Firma Ed25519 sobre el digest, verificada antes de descargar |
-| Manifiesto reproducido en otro dispositivo | El device id va dentro del payload firmado |
-| Despliegue de una imagen sin firmar | El agregado Rollout lo rechaza en el arranque |
-| Actualización a un dispositivo revocado | El manifiesto exige canPublish(): sin certificado válido, sin firmware |
-| Dispositivo comprometido | Revocación propagada al broker vía CRL (ventana máxima: 5 min) |
-| Secuestro de identidad durante rotación | Firma ECDSA con la clave privada vigente; la huella solo identifica el certificado |
-| Renovación usada para esquivar una revocación | La rotación exige canPublish(): un revocado no renueva |
-| Certificado ajeno o autofirmado en el broker | Único listener MQTT mTLS + `require_certificate` contra la cadena de Keystone |
-| Publicación en topics ajenos | ACL sobre devices/%u/#, donde %u es el CN = device id |
-| Manipulación del registro | Log encadenado por hash + trigger append-only en Postgres |
-| Enumeración de tokens | Respuesta genérica ante cualquier fallo de enrolamiento |
-| CSR con extensiones hostiles | El sujeto y las extensiones los fija la CA, nunca se copian del CSR |
-| Robo de la base de tokens | Solo se almacena el SHA-256; el secreto en claro no existe en disco |
-| Exposición accidental del entorno local | HTTP, PostgreSQL y MQTT de desarrollo ligados a loopback; sin listener MQTT anónimo |
+| Device impersonation | mTLS with a per-device certificate issued by the project's own CA |
+| Enrolment token reuse | Atomic compare-and-set consumption in PostgreSQL, hashed in the database, with a TTL |
+| Tampered firmware | Ed25519 signature over the digest, verified before download |
+| A manifest replayed on another device | The device id is inside the signed payload |
+| Rolling out an unsigned image | The Rollout aggregate refuses it at start |
+| Updating a revoked device | The manifest demands canPublish(): no valid certificate, no firmware |
+| A compromised device | Revocation propagated to the broker by CRL (worst-case window: 5 min) |
+| Identity hijack during rotation | ECDSA signature with the private key in force; the fingerprint only identifies the certificate |
+| Renewal used to dodge a revocation | Rotation demands canPublish(): a revoked device does not renew |
+| A foreign or self-signed certificate at the broker | A single mTLS MQTT listener with `require_certificate` against Keystone's chain |
+| Publishing on someone else's topics | ACL over devices/%u/#, where %u is the CN = device id |
+| Tampering with the record | Hash-chained log plus an append-only trigger in Postgres |
+| Token enumeration | A generic response to any enrolment failure |
+| A CSR carrying hostile extensions | The subject and extensions are set by the CA, never copied from the CSR |
+| Theft of the token store | Only the SHA-256 is stored; the secret in the clear exists nowhere on disk |
+| Accidental exposure of the local environment | Development HTTP, PostgreSQL and MQTT bound to loopback; no anonymous MQTT listener |
 
-## Licencia
+---
 
-MIT — ver [LICENSE](LICENSE).
+## Roadmap
+
+- [x] Phase 1 — Device inventory, domain, schema, web console and architecture tests
+- [x] Phase 1b — Console hardening: explicit CSRF, security headers, cookies, authentication auditing, a custom error page
+- [x] Phase 2 — A root + issuing CA hierarchy (EC P-256), CSR signing with proof of possession, revocation and CRL
+- [x] Phase 3 — Enrolment with a single-use token, a hash-chained audit trail and a live event stream (SSE)
+- [x] Phase 3b — A Java fleet simulator on virtual threads, with adversarial scenarios
+- [x] Phase 4 — Real mTLS against Mosquitto: a server certificate issued by the CA, `require_certificate`, a CRL refreshed every 5 minutes and a per-device-id ACL
+- [x] Phase 5 — OTA: Ed25519-signed artefacts, per-device manifests, 5/25/100 cohorts and rollback
+- [x] Phase 6 — A hash-chained audit trail with integrity verification and an append-only trigger in Postgres
+
+Every phase is shipped. See [`SECURITY.md`](SECURITY.md) for the disclosure policy.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
