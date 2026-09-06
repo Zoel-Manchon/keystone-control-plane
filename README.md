@@ -1,5 +1,13 @@
 # Keystone
 
+[![CI](https://github.com/Zoel-Manchon/keystone-control-plane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Zoel-Manchon/keystone-control-plane/actions/workflows/ci.yml)
+![Java 25](https://img.shields.io/badge/Java-25-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot 4.1](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![PKI Bouncy Castle](https://img.shields.io/badge/PKI-Bouncy_Castle-6E7681?style=flat-square)
+![MQTT 5 mTLS](https://img.shields.io/badge/MQTT_5-mTLS-660066?style=flat-square&logo=eclipsemosquitto&logoColor=white)
+![license MIT](https://img.shields.io/badge/license-MIT-2A3340?style=flat-square)
+
 **Cryptographic identity and OTA update control plane for IoT fleets.**
 
 Keystone collects no telemetry. It manages **who each device is** and **what firmware it
